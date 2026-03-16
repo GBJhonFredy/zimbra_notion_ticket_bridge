@@ -29,7 +29,9 @@ Abrir **PowerShell** o **CMD** y ejecutar:
 
 ```bash
 git clone https://github.com/GBJhonFredy/zimbra_notion_ticket_bridge.git
+
 cd zimbra_notion_ticket_bridge
+
 3. Crear y activar el entorno virtual (Windows)
 Estos comandos están pensados para copiar y pegar tal cual en Windows.
 
