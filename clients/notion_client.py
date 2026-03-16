@@ -31,17 +31,17 @@ class NotionTicketClient:
         created_at: datetime,
         estado: str = "Pendiente por iniciar",
         municipio: str | None = None,
-        prioridad: str = "Media",
     ) -> Dict[str, Any]:
         """
-        Crea un registro en la base 'Jhon Gil' con columnas:
+        Crea un registro en la base con columnas:
         - Asunto (title)
         - Ticket (rich_text)
         - Fecha Ingreso (date)
         - Estado (status)
-        - Prioridad (select)
+        - Prioridad (multi_select) -> siempre 'Media'
         """
         logger.info("Creando ticket en Notion: %s", ticket)
+
         properties: Dict[str, Any] = {
             "Asunto": {
                 "title": [
@@ -71,6 +71,11 @@ class NotionTicketClient:
                     "name": estado,
                 }
             },
+            "Prioridad": {
+                "multi_select": [
+                    {"name": "Media"}
+                ]
+            },
         }
 
         if municipio:
@@ -84,17 +89,11 @@ class NotionTicketClient:
                 ]
             }
 
-        if prioridad:
-            properties["Prioridad"] = {
-                "select": {
-                    "name": prioridad,
-                }
-            }
-
         payload = {
             "parent": {"database_id": self.database_id},
             "properties": properties,
         }
+
         page = self.client.pages.create(**payload)
         logger.info("Ticket creado en Notion con id %s", page.get("id"))
         return page
