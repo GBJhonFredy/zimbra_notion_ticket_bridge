@@ -14,6 +14,7 @@ class PetWindow:
         poses: Optional[Dict[str, str]] = None,
         size: int = 150,
     ) -> None:
+        # Si no se inyecta mapa de poses, usa set por defecto enlazado a assets del proyecto.
         if poses is None:
             poses = {
                 "ok": "assets/goldie-goldie-sleeping.png",
@@ -30,14 +31,17 @@ class PetWindow:
                 "support_2": "assets/goldie-goldie-zooming.png",
             }
 
+        # Tamano objetivo de render de la mascota.
         self.target_size = size
 
+        # Paleta visual de la tarjeta de mensaje.
         self.bg_color = "#1e1e1e"
         self.border_color = "#3a3a3a"
         self.text_color = "#f5f5f5"
         self.badge_bg = "#252525"
         self.transparent_color = "#ff00ff"
 
+        # Etiquetas mostradas en el chip de estado segun pose.
         self.state_labels = {
             "ok": "AL DÍA",
             "new_ticket": "NUEVO TICKET",
@@ -53,20 +57,24 @@ class PetWindow:
             "support_2": "INFO",
         }
 
+        # Carga todas las imagenes y las escala a target_size.
         self.images: Dict[str, tk.PhotoImage] = {}
         for state, path in poses.items():
             img_file = Path(path)
             if not img_file.exists():
                 raise FileNotFoundError(f"No se encontró la imagen: {img_file}")
 
+            # Carga imagen original.
             base = tk.PhotoImage(file=str(img_file))
             w, h = base.width(), base.height()
             scale = min(self.target_size / w, self.target_size / h)
 
             if scale < 1:
+                # Si es grande, reduce usando subsample.
                 factor = max(1, int(round(1 / scale)))
                 scaled = base.subsample(factor, factor)
             elif scale > 1:
+                # Si es pequena, amplifica usando zoom.
                 factor = int(round(scale))
                 scaled = base.zoom(factor, factor)
             else:
@@ -74,9 +82,11 @@ class PetWindow:
 
             self.images[state] = scaled
 
+        # Estado inicial: "ok" si existe, sino el primero disponible.
         self.current_state = "ok" if "ok" in self.images else next(iter(self.images))
         current_img = self.images[self.current_state]
 
+        # Ventana principal de mascota (sin borde, siempre arriba).
         self.root = tk.Toplevel()
         self.root.title("ARCA Pet")
         self.root.overrideredirect(True)
@@ -85,10 +95,12 @@ class PetWindow:
         self.root.geometry(f"{self.target_size}x{self.target_size}+40+40")
 
         try:
+            # Intenta hacer transparente el color magenta en Windows.
             self.root.wm_attributes("-transparentcolor", self.transparent_color)
         except tk.TclError:
             pass
 
+        # Canvas donde se dibuja la imagen PNG de la mascota.
         self.canvas = tk.Canvas(
             self.root,
             width=self.target_size,
@@ -106,14 +118,17 @@ class PetWindow:
             image=current_img,
         )
 
+        # Datos auxiliares para arrastre con mouse.
         self._drag_data = {"x": 0, "y": 0}
         self.canvas.bind("<ButtonPress-1>", self._on_start_drag)
         self.canvas.bind("<B1-Motion>", self._on_drag)
 
+        # Crea tarjeta lateral de mensajes y la posiciona junto a la mascota.
         self._create_message_window()
         self._update_message_position()
 
     def _create_message_window(self) -> None:
+        # Ventana secundaria para mostrar estado + mensaje multilinea.
         self.msg_win = tk.Toplevel(self.root)
         self.msg_win.overrideredirect(True)
         self.msg_win.attributes("-topmost", True)
@@ -138,6 +153,7 @@ class PetWindow:
         header = tk.Frame(frame, bg=self.bg_color)
         header.pack(fill="x", padx=10, pady=(10, 6))
 
+        # Chip superior con etiqueta de estado (PENDIENTE, EN PROCESO, etc.).
         self.status_chip = tk.Label(
             header,
             text=self.state_labels.get(self.current_state, "ESTADO"),
@@ -153,6 +169,7 @@ class PetWindow:
         body = tk.Frame(frame, bg=self.bg_color)
         body.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
+        # Label principal de texto con wrap para mensajes largos.
         self.msg_label = tk.Label(
             body,
             text="",
@@ -165,10 +182,12 @@ class PetWindow:
         )
         self.msg_label.pack(fill="both", expand=True, anchor="nw")
 
+        # Permite arrastrar el conjunto desde la tarjeta tambien.
         self.msg_win.bind("<ButtonPress-1>", self._on_start_drag_message)
         self.msg_win.bind("<B1-Motion>", self._on_drag_message)
 
     def _update_message_position(self) -> None:
+        # Fuerza calculo de tamanos para posicionar correctamente.
         self.root.update_idletasks()
         self.msg_win.update_idletasks()
 
@@ -177,38 +196,47 @@ class PetWindow:
         root_h = self.root.winfo_height()
         msg_h = self.msg_win.winfo_height()
 
+        # Posiciona tarjeta a la derecha y centrada verticalmente respecto a mascota.
         x = root_x + self.target_size + 12
         y = root_y + max(0, (root_h - msg_h) // 2)
 
         self.msg_win.geometry(f"+{x}+{y}")
 
     def _on_start_drag(self, event) -> None:
+        # Guarda punto inicial de click para calcular delta de movimiento.
         self._drag_data["x"] = event.x
         self._drag_data["y"] = event.y
 
     def _on_drag(self, event) -> None:
+        # Mueve ventana principal en funcion del desplazamiento del mouse.
         x = self.root.winfo_x() + event.x - self._drag_data["x"]
         y = self.root.winfo_y() + event.y - self._drag_data["y"]
         self.root.geometry(f"+{x}+{y}")
+        # Sincroniza posicion de la tarjeta al mover mascota.
         self._update_message_position()
 
     def _on_start_drag_message(self, event) -> None:
+        # Arrastre iniciado desde la tarjeta: guarda offset respecto a ventana root.
         self._drag_data["x"] = event.x_root - self.root.winfo_x()
         self._drag_data["y"] = event.y_root - self.root.winfo_y()
 
     def _on_drag_message(self, event) -> None:
+        # Mueve la mascota usando coordenadas globales del mouse.
         x = event.x_root - self._drag_data["x"]
         y = event.y_root - self._drag_data["y"]
         self.root.geometry(f"+{x}+{y}")
         self._update_message_position()
 
     def set_state(self, state: str, message: str) -> None:
+        # Si existe imagen para ese estado, actualiza pose actual.
         if state in self.images:
             self.current_state = state
             self.canvas.itemconfigure(self.image_id, image=self.images[state])
 
+        # Actualiza texto del chip y contenido del mensaje.
         self.status_chip.config(
             text=self.state_labels.get(state, state.upper().replace("_", " "))
         )
         self.msg_label.config(text=message)
+        # Reposiciona para mantener alineacion visual tras cambios de contenido.
         self._update_message_position()

@@ -42,6 +42,7 @@ ACCENT_GRAY = "#6B7280"
 # HELPERS UI
 # =========================================================
 def create_card(parent, bg_outer=BORDER, bg_inner=BG_SURFACE, padding=1):
+    # Patron visual reutilizable: contenedor externo (borde) + interno (contenido).
     outer = tk.Frame(parent, bg=bg_outer, bd=0, highlightthickness=0)
     inner = tk.Frame(outer, bg=bg_inner, bd=0, highlightthickness=0)
     inner.pack(fill="both", expand=True, padx=padding, pady=padding)
@@ -49,6 +50,7 @@ def create_card(parent, bg_outer=BORDER, bg_inner=BG_SURFACE, padding=1):
 
 
 def create_dot(parent, color, size=10):
+    # Dibuja un punto de estado en un Canvas pequeno.
     dot = tk.Canvas(
         parent,
         width=size,
@@ -62,10 +64,12 @@ def create_dot(parent, color, size=10):
 
 
 def human_time() -> str:
+    # Hora local HH:MM:SS para timestamp visual en stream.
     return time.strftime("%H:%M:%S")
 
 
 def shorten(text: str, limit: int = 68) -> str:
+    # Trunca textos largos para no romper layout de labels compactos.
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
@@ -76,6 +80,7 @@ class EventStream(tk.Frame):
     def __init__(self, parent):
         super().__init__(parent, bg=BG_SURFACE)
 
+        # Canvas + frame interno para lograr scroll vertical fluido en eventos.
         self.canvas = tk.Canvas(
             self,
             bg=BG_LOG_CANVAS,
@@ -88,6 +93,7 @@ class EventStream(tk.Frame):
 
         self.content.bind(
             "<Configure>",
+            # Ajusta region de scroll cuando cambia el tamano del contenido.
             lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         )
 
@@ -97,6 +103,7 @@ class EventStream(tk.Frame):
 
         self.canvas.bind(
             "<Configure>",
+            # Mantiene el frame interno al ancho del canvas para wrap correcto.
             lambda e: self.canvas.itemconfigure(self.canvas_window, width=e.width)
         )
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
@@ -104,6 +111,7 @@ class EventStream(tk.Frame):
         self.canvas.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
 
+        # Lista de widgets fila para poder recortar historial viejo.
         self.rows: list[tk.Frame] = []
         self.max_rows = 120
 
@@ -111,11 +119,13 @@ class EventStream(tk.Frame):
 
     def _on_mousewheel(self, event):
         try:
+            # Scroll en unidades normalizadas para mouse wheel de Windows.
             self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         except Exception:
             pass
 
     def add_event(self, level: str, category: str, message: str, meta: str = ""):
+        # Paletas por nivel para distinguir visualmente errores/ok/info.
         colors = {
             "SYSTEM": {"accent": ACCENT_BLUE, "border": "#31407C", "text": TEXT_PRIMARY},
             "INFO": {"accent": ACCENT_CYAN, "border": "#1F5E66", "text": TEXT_PRIMARY},
@@ -127,6 +137,7 @@ class EventStream(tk.Frame):
 
         palette = colors.get(level, colors["DEFAULT"])
 
+        # Crea una fila nueva en el stream.
         row = tk.Frame(self.content, bg=BG_LOG_CANVAS)
         row.pack(fill="x", padx=12, pady=(0, 10))
 
@@ -216,10 +227,12 @@ class EventStream(tk.Frame):
 
         self.rows.append(row)
 
+        # Si supera el maximo, elimina la mas antigua (FIFO visual).
         if len(self.rows) > self.max_rows:
             old = self.rows.pop(0)
             old.destroy()
 
+        # Auto-scroll al final para mostrar ultimo evento.
         self.update_idletasks()
         self.canvas.yview_moveto(1.0)
 
@@ -228,12 +241,14 @@ class EventStream(tk.Frame):
 # APP
 # =========================================================
 def create_app() -> tk.Tk:
+    # Ventana principal del dashboard ARCA.
     root = tk.Tk()
     root.title("ARCA · Automatic Relay for Case Automation")
     root.geometry("1280x760")
     root.minsize(1160, 700)
     root.configure(bg=BG_APP)
 
+    # Configuracion de estilos ttk centralizados.
     style = ttk.Style(root)
     style.theme_use("clam")
     style.configure("TFrame", background=BG_APP)
@@ -286,12 +301,11 @@ def create_app() -> tk.Tk:
         font=("Segoe UI", 8, "italic"),
     )
 
+    # Contenedor principal de toda la interfaz.
     shell = tk.Frame(root, bg=BG_APP)
     shell.pack(fill="both", expand=True)
 
-    # =====================================================
-    # TOPBAR
-    # =====================================================
+    # TOPBAR: barra superior con estado rapido de sistema.
     topbar = tk.Frame(shell, bg=BG_TOPBAR, height=30)
     topbar.pack(fill="x", side="top")
     topbar.pack_propagate(False)
@@ -348,9 +362,7 @@ def create_app() -> tk.Tk:
     main = tk.Frame(shell, bg=BG_APP, padx=18, pady=18)
     main.pack(fill="both", expand=True)
 
-    # =====================================================
-    # HEADER
-    # =====================================================
+    # HEADER: branding y descripcion del sistema.
     header = tk.Frame(main, bg=BG_APP)
     header.pack(fill="x", pady=(0, 18))
 
@@ -375,13 +387,11 @@ def create_app() -> tk.Tk:
         style="HeaderChip.TLabel",
     ).pack(anchor="w")
 
-    # =====================================================
-    # TOP STATUS ROW
-    # =====================================================
+    # TOP STATUS ROW: metricas de monitor y estado de conexiones.
     top_row = tk.Frame(main, bg=BG_APP)
     top_row.pack(fill="x", pady=(0, 16))
 
-    # Monitor
+    # Tarjeta 1: Monitor (estado, total procesado, ultimo evento, intervalo).
     monitor_outer, monitor_inner = create_card(top_row, BORDER, BG_SURFACE, padding=1)
     monitor_outer.pack(side="left", fill="x", expand=True)
 
@@ -467,7 +477,7 @@ def create_app() -> tk.Tk:
     interval_label = ttk.Label(block_3, text="20s", style="MetricValue.TLabel")
     interval_label.pack(anchor="w", pady=(4, 0))
 
-    # System status
+    # Tarjeta 2: estado de conectividad Zimbra/Notion.
     status_outer, status_inner = create_card(top_row, BORDER, BG_SURFACE, padding=1)
     status_outer.pack(side="left", fill="y", padx=(16, 0))
     status_outer.configure(width=300, height=170)
@@ -536,13 +546,11 @@ def create_app() -> tk.Tk:
     )
     notion_status.pack(side="right")
 
-    # =====================================================
-    # MAIN CONTENT AREA
-    # =====================================================
+    # MAIN CONTENT AREA: stream de eventos + panel contextual.
     content = tk.Frame(main, bg=BG_APP)
     content.pack(fill="both", expand=True)
 
-    # Event stream
+    # Panel izquierdo: stream temporal de eventos de monitoreo.
     console_outer, console_inner = create_card(content, BORDER, BG_SURFACE, padding=1)
     console_outer.pack(side="left", fill="both", expand=True)
 
@@ -588,7 +596,7 @@ def create_app() -> tk.Tk:
     event_stream = EventStream(stream_container)
     event_stream.pack(fill="both", expand=True)
 
-    # Context
+    # Panel derecho: ultimo ticket, detalle y estado global.
     rail_outer, rail_inner = create_card(content, BORDER, BG_SURFACE, padding=1)
     rail_outer.pack(side="left", fill="y", padx=(16, 0))
     rail_outer.configure(width=300)
@@ -688,7 +696,7 @@ def create_app() -> tk.Tk:
     )
     global_status_label.pack(anchor="w", padx=10, pady=(0, 10))
 
-    # Footer
+    # Footer: shortcuts de teclado operativos.
     footer = tk.Frame(main, bg=BG_APP)
     footer.pack(fill="x", pady=(12, 0))
 
@@ -704,16 +712,17 @@ def create_app() -> tk.Tk:
         style="Signature.TLabel",
     ).pack(side="right")
 
-    # =====================================================
-    # BUSINESS / MONITOR
-    # =====================================================
+    # BUSINESS / MONITOR: wiring entre UI y servicio de monitoreo.
     event_queue: "queue.Queue[str]" = queue.Queue()
+    # stop_event detiene monitor thread sin forzar cierre de app.
     stop_event = threading.Event()
     monitor_thread: threading.Thread | None = None
+    # Dict mutables para poder escribir desde cierres internos.
     monitor_running = {"value": False}
     uptime_seconds = {"value": 0}
 
     def classify_level(msg: str) -> str:
+        # Clasifica mensaje textual a nivel log para colorear stream.
         upper = msg.upper()
         if "[ERROR" in upper or upper.startswith("ERROR"):
             return "ERROR"
@@ -728,6 +737,7 @@ def create_app() -> tk.Tk:
         return "INFO"
 
     def derive_category(msg: str, level: str) -> str:
+        # Deriva categoria funcional (ZIMBRA_SYNC, NOTION_PUSH, etc.) para lectura rapida.
         upper = msg.upper()
         if "ZIMBRA" in upper:
             return "ZIMBRA_SYNC"
@@ -746,6 +756,7 @@ def create_app() -> tk.Tk:
         return "EVENT"
 
     def derive_meta(msg: str, level: str) -> str:
+        # Meta corto opcional para mostrar contexto tecnico en la cabecera de cada evento.
         upper = msg.upper()
         if level == "ERROR":
             return "RETRY 1/3"
@@ -758,9 +769,11 @@ def create_app() -> tk.Tk:
         return ""
 
     def extract_clean_message(msg: str) -> str:
+        # Limpia prefijos [SYSTEM]/[INFO]/... para mostrar texto final al usuario.
         return re.sub(r"^\[(SYSTEM|INFO|WARN|ERROR)\]\s*", "", msg, flags=re.IGNORECASE).strip()
 
     def set_monitor_visual(running: bool) -> None:
+        # Sincroniza chip visual y estado global cuando monitor inicia/detiene.
         if running:
             monitor_state.config(text="RUNNING", fg=ACCENT_GREEN)
             state_dot_canvas.itemconfig(state_dot, fill=ACCENT_GREEN, outline=ACCENT_GREEN)
@@ -771,15 +784,18 @@ def create_app() -> tk.Tk:
             global_status_label.config(text="Monitor detenido", fg=TEXT_PRIMARY)
 
     def update_connection_status(label: tk.Label, ok: bool) -> None:
+        # Helper simple para pintar OK/FAIL por conexion.
         label.config(text="OK" if ok else "FAIL", fg=ACCENT_GREEN if ok else ACCENT_RED)
 
     def try_extract_ticket(text: str) -> str | None:
+        # Busca codigos de ticket en mensajes de log para actualizar "Ultimo ticket".
         patterns = [
             r"\bSOP[0-9A-Z]+\b",
             r"\bTKT[0-9A-Z]+\b",
             r"\bINC[0-9A-Z]+\b",
         ]
         for pattern in patterns:
+            # Recorre patrones conocidos y retorna primer match.
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 return match.group(0)
@@ -787,6 +803,7 @@ def create_app() -> tk.Tk:
 
     def check_zimbra() -> None:
         try:
+            # Healthcheck basico: lectura limitada de 1 correo.
             client = ZimbraClient()
             client.get_recent_emails_from_support(limit=1)
             update_connection_status(zimbra_status, True)
@@ -795,6 +812,7 @@ def create_app() -> tk.Tk:
 
     def check_notion() -> None:
         try:
+            # Healthcheck basico: retrieve de base Notion.
             client = NotionTicketClient()
             client.test_connection()
             update_connection_status(notion_status, True)
@@ -802,11 +820,13 @@ def create_app() -> tk.Tk:
             update_connection_status(notion_status, False)
 
     def on_event(msg: str) -> None:
+        # Productor de eventos desde monitor thread hacia cola thread-safe.
         event_queue.put(msg)
 
     count_label.config(text="0")
 
     def add_stream_event(raw_msg: str):
+        # Traduce texto crudo a componentes visuales del EventStream.
         level = classify_level(raw_msg)
         category = derive_category(raw_msg, level)
         meta = derive_meta(raw_msg, level)
@@ -818,11 +838,13 @@ def create_app() -> tk.Tk:
         if monitor_running["value"]:
             return
 
+        # Antes de arrancar, valida conectividad de dependencias externas.
         add_stream_event("[SYSTEM] Verificando conexiones...")
         check_zimbra()
         check_notion()
 
         stop_event.clear()
+        # Crea servicio y lo ejecuta en hilo daemon para no bloquear UI.
         monitor = MonitorService(on_event=on_event, stop_event=stop_event)
         monitor_thread = threading.Thread(target=monitor.run_loop, daemon=True)
         monitor_thread.start()
@@ -841,6 +863,7 @@ def create_app() -> tk.Tk:
         if not monitor_running["value"]:
             return
 
+        # Solicita parada cooperativa del monitor.
         stop_event.set()
         monitor_running["value"] = False
         set_monitor_visual(False)
@@ -849,6 +872,8 @@ def create_app() -> tk.Tk:
         detail_label.config(text="El monitoreo fue detenido manualmente por el operador.")
 
     def on_key(event: tk.Event) -> None:
+        # Atajos operativos:
+        # 1 -> iniciar, 2 -> detener, q -> salir.
         key = event.keysym.lower()
         if key == "1":
             start_monitor()
@@ -863,9 +888,11 @@ def create_app() -> tk.Tk:
     def drain_queue():
         try:
             while True:
+                # Consumidor: vacia todos los eventos pendientes en este tick UI.
                 msg = event_queue.get_nowait()
 
                 if msg.startswith("TICKET_COUNT:"):
+                    # Evento de metrica numerica para contador principal.
                     count = int(msg.split(":", 1)[1])
                     count_label.config(text=str(count))
                     continue
@@ -876,16 +903,19 @@ def create_app() -> tk.Tk:
 
                 ticket_found = try_extract_ticket(clean_msg)
                 if ticket_found:
+                    # Actualiza ultimo ticket detectado en logs.
                     last_ticket_label.config(text=ticket_found)
 
                 level = classify_level(clean_msg)
                 if level == "ERROR":
+                    # Estado global en advertencia cuando hay errores recientes.
                     global_status_label.config(
                         text="Incidencias recientes detectadas",
                         fg=ACCENT_AMBER
                     )
                     detail_label.config(text=shorten(extract_clean_message(clean_msg), 180))
                 elif level == "SUCCESS":
+                    # Estado global en verde cuando hay eventos exitosos.
                     global_status_label.config(
                         text="Última sincronización exitosa",
                         fg=ACCENT_GREEN
@@ -897,24 +927,29 @@ def create_app() -> tk.Tk:
         except queue.Empty:
             pass
 
+        # Reagenda consumo de cola cada 200ms para mantener UI reactiva.
         root.after(200, drain_queue)
 
     root.after(200, drain_queue)
 
     def tick_uptime():
+        # Incrementa uptime solo cuando monitor esta corriendo.
         if monitor_running["value"]:
             uptime_seconds["value"] += 1
 
+        # Convierte segundos acumulados a formato HH:MM:SS.
         total = uptime_seconds["value"]
         hh = total // 3600
         mm = (total % 3600) // 60
         ss = total % 60
         session_uptime_label.config(text=f"{hh:02}:{mm:02}:{ss:02}")
 
+        # Reagenda cada 1 segundo.
         root.after(1000, tick_uptime)
 
     root.after(1000, tick_uptime)
 
+    # Estado inicial del dashboard al abrir.
     set_monitor_visual(False)
     add_stream_event("[SYSTEM] Interfaz ARCA lista.")
     add_stream_event("[INFO] Presiona 1 para iniciar el monitor.")

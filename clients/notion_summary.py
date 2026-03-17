@@ -8,10 +8,12 @@ from typing import List, Dict, Any
 from clients.notion_client import NotionTicketClient
 
 
+# Estados de negocio agrupados para resumen operativo.
 PENDING_STATES = {"Pendiente por iniciar", "Pendiente de aprobación"}
 IN_PROGRESS_STATES = {"En proceso", "Pausa"}
 DONE_STATES = {"Finalizado", "Reasignado", "Cerrado sin respuesta"}
 
+# Nombres de propiedades en la base de Notion.
 STATE_PROPERTY = "Estado"
 DATE_PROPERTY = "Fecha Ingreso"
 TICKET_PROPERTY = "Ticket"
@@ -20,6 +22,7 @@ TITLE_PROPERTY = "Asunto"
 
 @dataclass
 class TicketInfo:
+    # Estructura normalizada de un ticket individual para la UI/controlador.
     id: str
     ticket: str
     title: str
@@ -29,6 +32,7 @@ class TicketInfo:
 
 @dataclass
 class NotionSummary:
+    # Totales y colecciones por categoria.
     pending_count: int
     in_progress_count: int
     done_count: int
@@ -39,6 +43,7 @@ class NotionSummary:
 
 
 def _get_property_value(page: Dict[str, Any], prop_name: str) -> Any:
+    # Obtiene una propiedad de la pagina sin lanzar KeyError.
     props = page.get("properties", {})
     return props.get(prop_name)
 
@@ -50,12 +55,14 @@ def _extract_rich_text(prop: Dict[str, Any] | None) -> str:
     prop_type = prop.get("type")
 
     if prop_type == "rich_text":
+        # Recorre fragments rich_text y concatena plain_text.
         return "".join(
             part.get("plain_text", "")
             for part in prop.get("rich_text", [])
         ).strip()
 
     if prop_type == "title":
+        # Recorre fragments title y concatena plain_text.
         return "".join(
             part.get("plain_text", "")
             for part in prop.get("title", [])
@@ -65,12 +72,14 @@ def _extract_rich_text(prop: Dict[str, Any] | None) -> str:
 
 
 def _extract_title(page: Dict[str, Any]) -> str:
+    # Intenta titulo de propiedad Asunto; fallback al id de pagina.
     title_prop = _get_property_value(page, TITLE_PROPERTY)
     title = _extract_rich_text(title_prop)
     return title or page.get("id", "")
 
 
 def _extract_ticket(page: Dict[str, Any]) -> str:
+    # Extrae el valor de la propiedad Ticket (rich_text).
     ticket_prop = _get_property_value(page, TICKET_PROPERTY)
     return _extract_rich_text(ticket_prop)
 
@@ -81,9 +90,11 @@ def _extract_estado(page: Dict[str, Any]) -> str:
         return ""
 
     if prop["type"] == "status":
+        # Tipo recomendado de Notion para estados de flujo.
         return (prop["status"] or {}).get("name", "")
 
     if prop["type"] == "select":
+        # Compatibilidad con bases antiguas que usan select.
         return (prop["select"] or {}).get("name", "")
 
     return ""
@@ -104,8 +115,10 @@ def _extract_fecha_ingreso(page: Dict[str, Any]) -> datetime | None:
             return None
 
         try:
+            # Convierte ISO string a datetime. Reemplaza Z por offset UTC para fromisoformat.
             dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
             if not dt.tzinfo:
+                # Si fecha viene naive, asume UTC para comparaciones seguras.
                 dt = dt.replace(tzinfo=timezone.utc)
             return dt
         except Exception:
@@ -115,6 +128,7 @@ def _extract_fecha_ingreso(page: Dict[str, Any]) -> datetime | None:
 
 
 def _classify_ticket(page: Dict[str, Any]) -> TicketInfo:
+    # Construye un TicketInfo aplicando todos los extractores.
     return TicketInfo(
         id=page.get("id", ""),
         ticket=_extract_ticket(page),
@@ -125,9 +139,11 @@ def _classify_ticket(page: Dict[str, Any]) -> TicketInfo:
 
 
 def get_notion_summary(notion: NotionTicketClient) -> NotionSummary:
+    # Trae todas las paginas de Notion para calcular resumen global.
     pages = notion.fetch_all_tickets()
 
     now = datetime.now(timezone.utc)
+    # Regla stale: mas de 2 dias desde fecha de ingreso.
     stale_threshold = now - timedelta(days=2)
 
     pending: List[TicketInfo] = []
@@ -135,6 +151,7 @@ def get_notion_summary(notion: NotionTicketClient) -> NotionSummary:
     done: List[TicketInfo] = []
     stale: List[TicketInfo] = []
 
+    # Recorre cada pagina y clasifica segun estado.
     for page in pages:
         ticket = _classify_ticket(page)
         estado = ticket.estado
@@ -149,6 +166,7 @@ def get_notion_summary(notion: NotionTicketClient) -> NotionSummary:
             continue
 
         if ticket.fecha_ingreso and estado in (PENDING_STATES | IN_PROGRESS_STATES):
+            # Si esta viejo y aun no se cierra, va a cola de priorizacion.
             if ticket.fecha_ingreso < stale_threshold:
                 stale.append(ticket)
 

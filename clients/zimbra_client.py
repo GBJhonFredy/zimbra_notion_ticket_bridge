@@ -15,24 +15,30 @@ logger = logging.getLogger(__name__)
 
 class ZimbraClient:
     def __init__(self) -> None:
+        # Carga parametros IMAP desde settings central.
         self.host = settings.zimbra.host
         self.port = settings.zimbra.port
         self.email = settings.zimbra.email
         self.password = settings.zimbra.password
+        # Conexion IMAP activa (None hasta connect).
         self._imap: Optional[imaplib.IMAP4_SSL] = None
 
     def connect(self) -> None:
+        # Abre sesion SSL contra servidor IMAP.
         logger.info("Conectando a Zimbra IMAP %s:%s ...", self.host, self.port)
         self._imap = imaplib.IMAP4_SSL(self.host, self.port)
+        # Login con credenciales de cuenta monitoreada.
         resp, _ = self._imap.login(self.email, self.password)
         if resp != "OK":
             raise RuntimeError("No se pudo autenticar en Zimbra IMAP")
         logger.info("Conexión y login IMAP correctos.")
 
     def select_inbox(self) -> None:
+        # Valida que exista conexion antes de operar.
         if not self._imap:
             raise RuntimeError("IMAP no conectado")
 
+        # Selecciona INBOX para que search/fetch operen sobre ese buzon.
         resp, _ = self._imap.select("INBOX")
         if resp != "OK":
             raise RuntimeError("No se pudo seleccionar INBOX")
@@ -41,20 +47,24 @@ class ZimbraClient:
 
     def test_connection(self) -> None:
         try:
+            # Flujo minimo de verificacion: conectar + abrir inbox.
             self.connect()
             self.select_inbox()
             logger.info("Prueba de conexión a Zimbra OK.")
         finally:
+            # Cierra siempre para no dejar sockets abiertos.
             self.close()
 
     def close(self) -> None:
         if self._imap is not None:
             try:
+                # close() cierra mailbox seleccionada.
                 self._imap.close()
             except Exception:
                 pass
 
             try:
+                # logout() termina sesion IMAP.
                 self._imap.logout()
             except Exception:
                 pass
@@ -63,6 +73,7 @@ class ZimbraClient:
             logger.info("Conexión IMAP cerrada.")
 
     def _ensure_connected_and_inbox(self) -> None:
+        # Si no hay conexion activa, conecta; luego asegura INBOX seleccionada.
         if self._imap is None:
             self.connect()
         self.select_inbox()
@@ -71,10 +82,12 @@ class ZimbraClient:
         if not self._imap:
             raise RuntimeError("IMAP no conectado")
 
+        # Ejecuta criterio IMAP (ej: FROM "soporte@...").
         resp, data = self._imap.search(None, criteria)
         if resp != "OK":
             raise RuntimeError(f"Error al buscar mensajes con criterio {criteria}")
 
+        # data[0] llega con ids separados por espacio: b"1 2 3" -> [b"1", b"2", b"3"].
         return data[0].split()
 
     def _decode_header_str(self, raw: str) -> str:
@@ -82,25 +95,30 @@ class ZimbraClient:
             return ""
 
         try:
+            # decode_header + make_header manejan encodings mixtos en Subject/From.
             decoded = decode_header(raw)
             return str(make_header(decoded))
         except Exception:
+            # Fallback: devuelve valor crudo si no se puede decodificar.
             return raw
 
     def _fetch_message(self, msg_id: bytes) -> Tuple[bytes, Message]:
         if not self._imap:
             raise RuntimeError("IMAP no conectado")
 
+        # Descarga mensaje RFC822 completo usando id IMAP.
         resp, data = self._imap.fetch(msg_id, "(RFC822)")
         if resp != "OK" or not data or not data[0]:
             raise RuntimeError(f"No se pudo obtener el mensaje {msg_id!r}")
 
         raw_email = data[0][1]
+        # Convierte bytes RFC822 en objeto email.message.Message.
         msg = message_from_bytes(raw_email)
         return raw_email, msg
 
     def _get_body_text(self, msg: Message) -> str:
         if msg.is_multipart():
+            # Recorre partes del correo para encontrar text/plain no adjunto.
             for part in msg.walk():
                 content_type = part.get_content_type()
                 content_disposition = str(part.get("Content-Disposition", ""))
@@ -111,12 +129,15 @@ class ZimbraClient:
                         if payload is None:
                             continue
 
+                        # Usa charset de la parte; fallback utf-8.
                         charset = part.get_content_charset() or "utf-8"
                         return payload.decode(charset, errors="replace")
                     except Exception:
+                        # Si una parte falla, sigue buscando otras partes compatibles.
                         continue
         else:
             try:
+                # Caso no multipart: decode directo del payload.
                 payload = msg.get_payload(decode=True)
                 if payload is None:
                     return ""
@@ -137,16 +158,20 @@ class ZimbraClient:
         Devuelve hasta 'limit' correos recientes del remitente indicado.
         """
         try:
+            # Garantiza conexion lista para consulta.
             self._ensure_connected_and_inbox()
 
+            # Criterio IMAP por remitente.
             criteria = f'(FROM "{from_address}")'
             ids = self._search(criteria)
             logger.info("Encontrados %d mensajes de %s", len(ids), from_address)
 
+            # Toma solo los ultimos N ids para acotar procesamiento.
             ids = ids[-limit:]
 
             emails: List[EmailMessageModel] = []
 
+            # Recorre ids uno a uno y construye modelo uniforme.
             for msg_id in ids:
                 _, msg = self._fetch_message(msg_id)
 
@@ -159,20 +184,25 @@ class ZimbraClient:
                 body = self._get_body_text(msg)
 
                 try:
+                    # Convierte Date header a datetime.
                     date = parsedate_to_datetime(date_header)
                 except Exception:
+                    # Fallback defensivo para headers malformados.
                     date = datetime.now()
 
                 email_model = EmailMessageModel(
+                    # Usa Message-ID real; si falta, usa id IMAP como respaldo deduplicable.
                     message_id=msg_id_header or msg_id.decode(errors="ignore"),
                     from_address=from_header,
                     subject=subject,
                     date=date,
                     body=body,
                 )
+                # Acumula cada correo parseado en lista de salida.
                 emails.append(email_model)
 
             return emails
 
         finally:
+            # Cierre garantizado de sesion IMAP en cualquier escenario.
             self.close()

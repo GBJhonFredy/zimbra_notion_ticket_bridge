@@ -10,15 +10,19 @@ logger = logging.getLogger(__name__)
 
 class NotionTicketClient:
     def __init__(self) -> None:
+        # Validaciones tempranas para fallar rapido si falta configuracion critica.
         if not settings.notion.token:
             raise ValueError("NOTION_TOKEN no está configurado en el .env")
         if not settings.notion.database_id:
             raise ValueError("NOTION_DATABASE_ID no está configurado en el .env")
 
+        # Cliente oficial de Notion autenticado con token de integracion.
         self.client = Client(auth=settings.notion.token)
+        # ID de base de datos destino para crear/consultar tickets.
         self.database_id = settings.notion.database_id
 
     def test_connection(self) -> Dict[str, Any]:
+        # Intenta recuperar metadata de la base para comprobar permisos/acceso.
         logger.info("Probando conexión a Notion y acceso a la base de datos...")
         result = self.client.databases.retrieve(database_id=self.database_id)
         logger.info("Conexión a Notion OK, base de datos accesible.")
@@ -40,8 +44,10 @@ class NotionTicketClient:
         - Estado (status)
         - Prioridad (multi_select) -> siempre 'Media'
         """
+        # Registra en logs el ticket que va a persistirse.
         logger.info("Creando ticket en Notion: %s", ticket)
 
+        # Mapeo de propiedades Notion -> valores de negocio.
         properties: Dict[str, Any] = {
             "Asunto": {
                 "title": [
@@ -78,6 +84,7 @@ class NotionTicketClient:
             },
         }
 
+        # Municipio es opcional: solo se agrega propiedad si hubo match en el correo.
         if municipio:
             properties["Municipio"] = {
                 "rich_text": [
@@ -89,11 +96,13 @@ class NotionTicketClient:
                 ]
             }
 
+        # Payload final para pages.create: parent + properties.
         payload = {
             "parent": {"database_id": self.database_id},
             "properties": properties,
         }
 
+        # Crea la pagina en Notion y retorna la respuesta completa del API.
         page = self.client.pages.create(**payload)
         logger.info("Ticket creado en Notion con id %s", page.get("id"))
         return page
@@ -103,6 +112,7 @@ class NotionTicketClient:
         Compatibilidad con la API nueva de Notion, donde las consultas
         se hacen sobre data sources y no directamente sobre databases.
         """
+        # Recupera metadata de la DB para leer data_sources en APIs recientes.
         db = self.client.databases.retrieve(database_id=self.database_id)
 
         data_sources = db.get("data_sources", [])
@@ -112,6 +122,7 @@ class NotionTicketClient:
                 "Verifica permisos de la integración y la versión del SDK/API."
             )
 
+        # Toma el primer data source disponible.
         first = data_sources[0]
         data_source_id = first.get("id")
         if not data_source_id:
@@ -124,6 +135,7 @@ class NotionTicketClient:
         Intenta usar databases.query (SDK viejo).
         Si no existe, usa data_sources.query (SDK/API nueva).
         """
+        # Camino 1: SDK clasico con endpoint databases.query.
         databases_endpoint = getattr(self.client, "databases", None)
         if databases_endpoint and hasattr(databases_endpoint, "query"):
             payload: Dict[str, Any] = {"database_id": self.database_id}
@@ -131,6 +143,7 @@ class NotionTicketClient:
                 payload["start_cursor"] = start_cursor
             return databases_endpoint.query(**payload)
 
+        # Camino 2: SDK nuevo con endpoint data_sources.query.
         data_sources_endpoint = getattr(self.client, "data_sources", None)
         if data_sources_endpoint and hasattr(data_sources_endpoint, "query"):
             data_source_id = self._get_first_data_source_id()
@@ -151,9 +164,11 @@ class NotionTicketClient:
         logger.info("Obteniendo todos los tickets desde Notion...")
         results: list[dict[str, Any]] = []
 
+        # Primera pagina de resultados.
         response = self._query_database_compat()
         results.extend(response.get("results", []))
 
+        # Recorre paginacion hasta que has_more sea False.
         while response.get("has_more"):
             next_cursor = response.get("next_cursor")
             if not next_cursor:
